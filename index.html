@@ -507,9 +507,8 @@ class Tank{
     this.shieldActive=isPlayer?true:false;
     this.speedTimer=0;
     this.moveAnim=0;
-    this.respawnAnim=0;
     this.flashTimer=0;
-    this.isSpawning=true;
+    this.spawnFlash=0;
     this.steering=0;
     this.aiState='idle';
     this.aiTimer=0;
@@ -594,6 +593,7 @@ function canMove(tank,nx,ny,tanks){
 
 // ---- Init Game ----
 function initGame(level=1){
+  particles.length=0;
   const map=buildMap(level);
 
   const px=(Math.floor(COLS/2)-2)*CELL+1,py=(ROWS-4)*CELL+1;
@@ -701,7 +701,7 @@ function update(){
   // Player
   const p=G.player;
   if(p.alive){
-    if(p.isSpawning){p.respawnAnim++;if(p.respawnAnim>30)p.isSpawning=false}
+    if(p.spawnFlash>0)p.spawnFlash--;
     if(p.shieldTimer>0){p.shieldTimer--}else p.shieldActive=false;
     if(p.speedTimer>0){p.speedTimer--}else p.speed=p.baseSpeed;
     if(p.cooldown>0)p.cooldown--;
@@ -724,7 +724,7 @@ function update(){
     G.playerRespawnTimer--;
     if(G.playerRespawnTimer===0){
       const px=(Math.floor(COLS/2)-2)*CELL+1,py=(ROWS-4)*CELL+1;
-      p.x=px;p.y=py;p.dir=DIR_UP;p.alive=true;p.isSpawning=true;p.respawnAnim=0;
+      p.x=px;p.y=py;p.dir=DIR_UP;p.alive=true;p.spawnFlash=10;
       p.shieldTimer=120;p.shieldActive=true;p.cooldown=0;
       spawnExplosionParticles(p.cx,p.cy,15);
     }
@@ -733,7 +733,7 @@ function update(){
   // Enemies
   for(const e of G.enemies){
     if(!e.alive)continue;
-    if(e.isSpawning){e.respawnAnim++;if(e.respawnAnim>30)e.isSpawning=false}
+    if(e.spawnFlash>0)e.spawnFlash--;
     if(e.cooldown>0)e.cooldown--;
     updateAI(e);
   }
@@ -785,7 +785,7 @@ function update(){
     if(!b.alive)continue;
     if(b.owner.isPlayer){
       for(const e of G.enemies){
-        if(!e.alive||e.isSpawning)continue;
+        if(!e.alive)continue;
         if(rectOverlap(b.getRect(),e.getRect())){
           b.alive=false;
           e.hp-=b.damage;
@@ -813,7 +813,7 @@ function update(){
       }
     }else{
       // Enemy bullet hits player
-      if(p.alive&&!p.isSpawning&&rectOverlap(b.getRect(),p.getRect())){
+      if(p.alive&&rectOverlap(b.getRect(),p.getRect())){
         b.alive=false;
         if(!p.shieldActive){
           p.alive=false;G.lives--;
@@ -845,7 +845,7 @@ function update(){
     if(G.spawnTimer<=0){
       const sq=G.spawnQueue.shift();
       const enemy=new Tank(sq.x,sq.y,DIR_DOWN,false,sq.type);
-      enemy.isSpawning=true;enemy.respawnAnim=0;
+      enemy.spawnFlash=12;
       G.enemies.push(enemy);
       G.spawnTimer=90;
     }
@@ -925,7 +925,7 @@ function applyPowerup(type){
     case 'bomb':
       playBomb();
       G.enemies.forEach(e=>{
-        if(e.alive&&!e.isSpawning){
+        if(e.alive){
           e.alive=false;G.enemiesKilled++;
           const pts=ENEMY_TYPES[e.type]?.score||100;
           G.score+=pts;
@@ -945,13 +945,16 @@ function applyPowerup(type){
 // ---- Game Over ----
 function gameOver(win){
   G.state='gameover';
+  G.lastWasWin=win;
   const prevHigh=parseInt(localStorage.getItem('tankHighScore')||'0');
   if(G.score>prevHigh){localStorage.setItem('tankHighScore',G.score.toString());G.highScore=G.score}
   if(win){
     $('gameOverTitle').textContent='🎉 胜利！';$('gameOverTitle').style.color='#f5c842';
+    $('restartBtn').textContent='下一关 ➜';
     playLevelClear();
   }else{
     $('gameOverTitle').textContent='💀 游戏结束';$('gameOverTitle').style.color='#e94560';
+    $('restartBtn').textContent='重新开始';
     playGameOver();
   }
   const st=$('statsPanel');
@@ -1062,15 +1065,15 @@ function draw(){
   // ---- Enemies ----
   for(const e of G.enemies){
     if(!e.alive)continue;
-    if(e.isSpawning){
-      // Spawn animation
-      const p=Math.min(1,e.respawnAnim/30);
-      ctx.globalAlpha=p;
-      ctx.save();ctx.translate(e.cx,e.cy);
-      ctx.rotate((1-p)*Math.PI*2);
-      ctx.scale(p,p);
-      drawTankSprite(ctx,0,0,e.dir,false,e.type,e.hp,e.maxHp);
-      ctx.restore();ctx.globalAlpha=1;
+    if(e.spawnFlash>0){
+      const flash=e.spawnFlash%4<2;
+      if(flash){
+        ctx.globalAlpha=0.5;
+        drawTankSprite(ctx,e.x,e.y,e.dir,false,e.type,e.hp,e.maxHp);
+        ctx.globalAlpha=1;
+      }else{
+        drawTankSprite(ctx,e.x,e.y,e.dir,false,e.type,e.hp,e.maxHp);
+      }
       continue;
     }
     drawTankSprite(ctx,e.x,e.y,e.dir,false,e.type,e.hp,e.maxHp);
@@ -1079,14 +1082,10 @@ function draw(){
   // ---- Player ----
   const p=G.player;
   if(p.alive){
-    if(p.isSpawning){
-      const pp=Math.min(1,p.respawnAnim/30);
-      ctx.globalAlpha=pp;
-      ctx.save();ctx.translate(p.cx,p.cy);
-      ctx.rotate((1-pp)*Math.PI*2);
-      ctx.scale(pp,pp);
-      drawTankSprite(ctx,0,0,p.dir,true,'player',p.hp,p.maxHp);
-      ctx.restore();ctx.globalAlpha=1;
+    if(p.spawnFlash>0&&p.spawnFlash%4<2){
+      ctx.globalAlpha=0.5;
+      drawTankSprite(ctx,p.x,p.y,p.dir,true,'player',p.hp,p.maxHp);
+      ctx.globalAlpha=1;
     }else{
       drawTankSprite(ctx,p.x,p.y,p.dir,true,'player',p.hp,p.maxHp);
     }
@@ -1217,13 +1216,14 @@ function drawTankSprite(ctx,x,y,dir,isPlayer,type,hp,maxHp){
     const barW=26,barH=3;
     ctx.fillStyle='rgba(0,0,0,0.4)';
     ctx.fillRect(cx-barW/2-1,y+s+2,barW+2,barH+2);
-    ctx.fillStyle='#2ecc71';ctx.fillRect(cx-barW/2,y+s+3,barW*(p.hp/p.maxHp),barH);
-    if(p.hp===1)ctx.fillStyle='#e74c3c';
-    ctx.fillRect(cx-barW/2,y+s+3,barW*(p.hp/p.maxHp),barH-1);
+    ctx.fillStyle=hp>1?'#2ecc71':'#e74c3c';
+    ctx.fillRect(cx-barW/2,y+s+3,barW*(hp/maxHp),barH);
+    ctx.fillRect(cx-barW/2,y+s+3,barW*(hp/maxHp),barH-1);
   }
 
   // Muzzle flash hint
-  if(G.frame%3===0&&isPlayer&&keys[' ']&&p.cooldown>p.maxCooldown-4){
+  const pl=G.player;
+  if(G.frame%3===0&&isPlayer&&keys[' ']&&pl.cooldown>pl.maxCooldown-4){
     ctx.fillStyle='rgba(255,255,200,0.8)';
     ctx.shadowBlur=15;ctx.shadowColor='#ff0';
     let fx=cx+DX[dir]*s/2,fy=cy+DY[dir]*s/2;
@@ -1276,8 +1276,11 @@ $('startBtn').addEventListener('click',()=>{
 });
 $('restartBtn').addEventListener('click',()=>{
   goOv.classList.remove('active');
-  G={};
-  initGame(1);
+  if(G.lastWasWin){
+    initGame(G.level+1);
+  }else{
+    G={};initGame(1);
+  }
 });
 $('menuBtn').addEventListener('click',()=>{
   goOv.classList.remove('active');
