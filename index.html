@@ -337,7 +337,7 @@ function sb(tk){
 //  AI
 // ================================================================
 function ai_(tk){
-  if(!G||tk.aiT===undefined)return;
+  if(!G)return;
   if(tk.aiT===undefined)tk.aiT=0;
   if(tk.aiDT===undefined)tk.aiDT=0;
   tk.aiT--;tk.aiDT--;
@@ -650,8 +650,8 @@ const mCtx=mc.getContext('2d');
 //  GAME LOOP
 // ================================================================
 function loop(){
-  upd();
-  dr();
+  try{upd()}catch(e){console.error('update error:',e)}
+  try{dr()}catch(e){console.error('draw error:',e)}
   requestAnimationFrame(loop);
 }
 
